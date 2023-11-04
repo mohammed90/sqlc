@@ -1,3 +1,4 @@
+-- name: Test :one
 SELECT abs(-17.4);
 SELECT cbrt(27.0);
 SELECT ceil(-42.8);

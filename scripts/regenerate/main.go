@@ -7,12 +7,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
-func parseExecCommand(path string) (string, error) {
+func parseExecCommand(path string) (string, []string, error) {
 	var exec = struct {
-		Command string `json:"command"`
+		Command  string   `json:"command"`
+		Contexts []string `json:"contexts"`
 	}{
 		Command: "generate",
 	}
@@ -21,14 +23,14 @@ func parseExecCommand(path string) (string, error) {
 	if _, err := os.Stat(execJsonPath); !os.IsNotExist(err) {
 		blob, err := os.ReadFile(execJsonPath)
 		if err != nil {
-			return "", err
+			return "", nil, err
 		}
 		if err := json.Unmarshal(blob, &exec); err != nil {
-			return "", err
+			return "", nil, err
 		}
 	}
 
-	return exec.Command, nil
+	return exec.Command, exec.Contexts, nil
 }
 
 func regenerate(dir string) error {
@@ -41,7 +43,7 @@ func regenerate(dir string) error {
 		}
 		if strings.HasSuffix(path, "sqlc.json") || strings.HasSuffix(path, "sqlc.yaml") || strings.HasSuffix(path, "sqlc.yml") {
 			cwd := filepath.Dir(path)
-			command, err := parseExecCommand(cwd)
+			command, contexts, err := parseExecCommand(cwd)
 			if err != nil {
 				return fmt.Errorf("failed to parse exec.json: %w", err)
 			}
@@ -50,13 +52,20 @@ func regenerate(dir string) error {
 				return nil
 			}
 
+			if slices.Contains(contexts, "managed-db") {
+				return nil
+			}
+
 			var expectFailure bool
+			if _, err := os.Stat(filepath.Join(cwd, "stderr")); !os.IsNotExist(err) {
+				expectFailure = true
+			}
 			if _, err := os.Stat(filepath.Join(cwd, "stderr.txt")); !os.IsNotExist(err) {
 				expectFailure = true
 			}
 
 			cmd := exec.Command("sqlc-dev", "generate")
-			cmd.Env = append(cmd.Env, "SQLC_DUMMY_VALUE=true")
+			cmd.Env = append(cmd.Env, "SQLC_DUMMY_VALUE=true", "HOME="+os.Getenv("HOME"))
 			cmd.Dir = cwd
 			out, failed := cmd.CombinedOutput()
 			if failed != nil && !expectFailure {

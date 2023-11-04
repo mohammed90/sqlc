@@ -15,7 +15,7 @@ import (
 	"github.com/sqlc-dev/sqlc/internal/sql/validate"
 )
 
-var ErrUnsupportedStatementType = errors.New("parseQuery: unsupported statement type")
+// var ErrUnsupportedStatementType = errors.New("parseQuery: unsupported statement type")
 
 func (c *Compiler) parseQuery(stmt ast.Node, src string, o opts.Parser) (*Query, error) {
 	ctx := context.Background()
@@ -48,6 +48,10 @@ func (c *Compiler) parseQuery(stmt ast.Node, src string, o opts.Parser) (*Query,
 		return nil, err
 	}
 
+	if name == "" {
+		return nil, nil
+	}
+
 	if err := validate.Cmd(raw.Stmt, name, cmd); err != nil {
 		return nil, err
 	}
@@ -69,8 +73,12 @@ func (c *Compiler) parseQuery(stmt ast.Node, src string, o opts.Parser) (*Query,
 	}
 
 	var anlys *analysis
+	anlysOpts := analysisOptions{}
+	if md.Cmd == metadata.CmdExec {
+		anlysOpts.noOutput = true
+	}
 	if c.analyzer != nil {
-		inference, _ := c.inferQuery(raw, rawSQL)
+		inference, _ := c.inferQuery(raw, rawSQL, anlysOpts)
 		if inference == nil {
 			inference = &analysis{}
 		}
@@ -98,7 +106,7 @@ func (c *Compiler) parseQuery(stmt ast.Node, src string, o opts.Parser) (*Query,
 		// FOOTGUN: combineAnalysis mutates inference
 		anlys = combineAnalysis(inference, result)
 	} else {
-		anlys, err = c.analyzeQuery(raw, rawSQL)
+		anlys, err = c.analyzeQuery(raw, rawSQL, anlysOpts)
 		if err != nil {
 			return nil, err
 		}

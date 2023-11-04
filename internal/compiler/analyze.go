@@ -20,6 +20,11 @@ type analysis struct {
 	Query      string
 }
 
+type analysisOptions struct {
+	failFast bool
+	noOutput bool
+}
+
 func convertTableName(id *analyzer.Identifier) *ast.TableName {
 	if id == nil {
 		return nil
@@ -106,18 +111,20 @@ func combineAnalysis(prev *analysis, a *analyzer.Analysis) *analysis {
 	return prev
 }
 
-func (c *Compiler) analyzeQuery(raw *ast.RawStmt, query string) (*analysis, error) {
-	return c._analyzeQuery(raw, query, true)
+func (c *Compiler) analyzeQuery(raw *ast.RawStmt, query string, opts analysisOptions) (*analysis, error) {
+	opts.failFast = true
+	return c._analyzeQuery(raw, query, opts)
 }
 
-func (c *Compiler) inferQuery(raw *ast.RawStmt, query string) (*analysis, error) {
-	return c._analyzeQuery(raw, query, false)
+func (c *Compiler) inferQuery(raw *ast.RawStmt, query string, opts analysisOptions) (*analysis, error) {
+	opts.failFast = false
+	return c._analyzeQuery(raw, query, opts)
 }
 
-func (c *Compiler) _analyzeQuery(raw *ast.RawStmt, query string, failfast bool) (*analysis, error) {
+func (c *Compiler) _analyzeQuery(raw *ast.RawStmt, query string, opts analysisOptions) (*analysis, error) {
 	errors := make([]error, 0)
 	check := func(err error) error {
-		if failfast {
+		if opts.failFast {
 			return err
 		}
 		if err != nil {
@@ -153,10 +160,10 @@ func (c *Compiler) _analyzeQuery(raw *ast.RawStmt, query string, failfast bool) 
 	case *ast.TruncateStmt:
 	case *ast.UpdateStmt:
 	case *ast.RefreshMatViewStmt:
-	default:
-		if err := check(ErrUnsupportedStatementType); err != nil {
-			return nil, err
-		}
+		// default:
+		// 	if err := check(ErrUnsupportedStatementType); err != nil {
+		// 		return nil, err
+		// 	}
 	}
 
 	if err := check(validate.FuncCall(c.catalog, c.combo, raw)); err != nil {
@@ -169,7 +176,7 @@ func (c *Compiler) _analyzeQuery(raw *ast.RawStmt, query string, failfast bool) 
 	rvs := rangeVars(raw.Stmt)
 	refs, errs := findParameters(raw.Stmt)
 	if len(errs) > 0 {
-		if failfast {
+		if opts.failFast {
 			return nil, errs[0]
 		}
 		errors = append(errors, errs...)
@@ -190,9 +197,13 @@ func (c *Compiler) _analyzeQuery(raw *ast.RawStmt, query string, failfast bool) 
 	if err := check(err); err != nil {
 		return nil, err
 	}
-	cols, err := c.outputColumns(qc, raw.Stmt)
-	if err := check(err); err != nil {
-		return nil, err
+
+	cols := []*Column{}
+	if !opts.noOutput {
+		cols, err = c.outputColumns(qc, raw.Stmt)
+		if err := check(err); err != nil {
+			return nil, err
+		}
 	}
 
 	expandEdits, err := c.expand(qc, raw)
